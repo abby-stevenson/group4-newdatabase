@@ -1,8 +1,17 @@
 package sales;
 
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+import org.bson.Document;
+import static com.mongodb.client.model.Filters.eq;
+
+import org.bson.conversions.Bson;
+
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,124 +20,86 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import sales.HomeSale;
 
-
-import java.sql.Connection;
-
 public class SalesDAO {
 
-    // List to hold test data
-    private List<HomeSale> sales = new ArrayList<>();
-
-    private static final String DB_URL = "jdbc:mysql://localhost:3308/realestate"; //MAKE SURE THIS IS YOUR PORT
-    private static final String DB_USER = "root";
-    private static final String DB_PASSWORD = "123";
-
+    private static final String DB_URI = "mongodb://root:123@localhost:27017";
+    private static final String DB_NAME = "RealEstateDB";
+    private MongoDatabase database;
+    private MongoCollection<Document> properties;
+    private MongoCollection<Document> postcodes;
+    private MongoClient client;
+    
     public SalesDAO() {
-        // Test data
-        // sales.add(new HomeSale("0", "2257", "2000000"));
-        // sales.add(new HomeSale("1", "2262", "1300000"));
-        // sales.add(new HomeSale("2", "2000", "4000000"));
-        // sales.add(new HomeSale("3", "2000", "1000000"));
+        MongoClient client = MongoClients.create(DB_URI);
+        this.database = client.getDatabase(DB_NAME);
+        this.properties = database.getCollection("property");
+        this.postcodes = database.getCollection("postcode");
+    }
+
+    public void close() {
+        if (client != null) {
+            client.close();
+        }
     }
 
     public boolean newSale(HomeSale homeSale) {
-        sales.add(homeSale);
+        Document doc = new Document("property_id", homeSale.getPropertyId())
+        .append("purchase_price", Double.parseDouble(homeSale.getPurchasePrice()))
+        .append("post_code", homeSale.getPostCode())
+        .append("download_date", homeSale.getDownloadDate())
+        .append("council_name", homeSale.getCouncilName())
+        .append("address", homeSale.getAddress())
+        .append("nature_of_property", homeSale.getNatureOfProperty())
+        .append("strata_lot_number", Integer.parseInt(homeSale.getStrataLotNumber()))
+        .append("property_name", homeSale.getPropertyName())
+        .append("area_type", homeSale.getAreaType())
+        .append("contract_date", homeSale.getContractDate())
+        .append("settlement_date", homeSale.getSettlementDate())
+        .append("zoning", homeSale.getZoning())
+        .append("primary_purpose", homeSale.getPrimaryPurpose())
+        .append("legal_description", homeSale.getLegalDescription())
+        .append("property_type", homeSale.getPropertyType())
+        .append("view_count", 0);
+
+        properties.insertOne(doc);
         return true;
     }
 
     // returns Optional wrapping a HomeSale if id is found, empty Optional otherwise
     public Optional<HomeSale> getSaleById(String saleID) {
-        String updateViewCountQuery = "UPDATE property SET view_count = view_count + 1 WHERE property_id = ?";
-        String selectQuery = "SELECT * FROM property WHERE property_id = ? LIMIT 1";
-    
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
-    
-            // First, increment the view count
-            try (PreparedStatement updateStmt = conn.prepareStatement(updateViewCountQuery)) {
-                updateStmt.setString(1, saleID);
-                updateStmt.executeUpdate();
-            }
-    
-            // Then, retrieve the property details
-            try (PreparedStatement selectStmt = conn.prepareStatement(selectQuery)) {
-                selectStmt.setString(1, saleID);
-    
-                try (ResultSet rs = selectStmt.executeQuery()) {
-                    if (rs.next()) {
-                        HomeSale sale = new HomeSale();
-                        setFields(sale, rs);
-                        return Optional.of(sale);
-                    }
-                }
-            }
-    
-        } catch (SQLException e) {
-            e.printStackTrace();
+        properties.updateOne(eq("property_id", saleID), Updates.inc("view_count", 1));
+        Document doc = properties.find(eq("property_id", saleID)).first();
+
+        if (doc != null) {
+            return Optional.of(convertDocToHomeSale(doc));
         }
-    
+
         return Optional.empty();
     }
     
     // returns a List of home sales in a given postCode
     public List<HomeSale> getSalesByPostCode(String postCode) {
-        List<HomeSale> salesList = new ArrayList<>();
-    
-        String query = "SELECT * FROM property WHERE post_code = ? LIMIT 20";
-        String updatePostcodeViewCount = "UPDATE postcode SET view_count_postcode = view_count_postcode + 1 WHERE post_code = ?";
-    
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
-    
-            // Update view count
-            try (PreparedStatement updateStmt = conn.prepareStatement(updatePostcodeViewCount)) {
-                updateStmt.setString(1, postCode);
-                updateStmt.executeUpdate();
-            }
-    
-            // Retrieve properties
-            try (PreparedStatement stmt = conn.prepareStatement(query)) {
-                stmt.setString(1, postCode);
-    
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        HomeSale sale = new HomeSale();
-                        setFields(sale, rs); // populate fields from ResultSet
-                        salesList.add(sale);
-                    }
-                }
-            }
-    
-        } catch (SQLException e) {
-            e.printStackTrace();
+        postcodes.updateOne(eq("post_code", postCode), Updates.inc("view_count_postcode", 1));
+
+        List<HomeSale> results = new ArrayList<>();
+        for (Document doc : properties.find(eq("post_code", postCode)).limit(20)) {
+            results.add(convertDocToHomeSale(doc));
         }
-    
-        return salesList;
+        return results;
     }
     
-
-
-
-
  // returns all home sales. Potentially large
  public List<HomeSale> getAllSales() {
 
-    List<HomeSale> salesList = new ArrayList<>();
+   List<HomeSale> salesList = new ArrayList<>();
 
-    String query = "SELECT * FROM property LIMIT 20";
 
-    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-         PreparedStatement stmt = conn.prepareStatement(query);
-         ResultSet rs = stmt.executeQuery()) {
+        // Limit to 20 results
+        FindIterable<Document> docs = properties.find().limit(20);
 
-        while (rs.next()) {
-            HomeSale sale = new HomeSale();
-            setFields(sale, rs);
-
-            salesList.add(sale);
+        for (Document doc : docs) {
+            salesList.add(convertDocToHomeSale(doc));
         }
-
-    } catch (SQLException e) {
-        e.printStackTrace();
-    }
 
     return salesList;
 }
@@ -136,58 +107,31 @@ public class SalesDAO {
 //returns 20 houses closest to and under the upper budget given
 public List<HomeSale> getUnderBudget(String upperBudget) {
 
-    List<HomeSale> salesList = new ArrayList<>();
+    List<HomeSale> results = new ArrayList<>();
+    double budget = Double.parseDouble(upperBudget);
 
-    // Query to fetch houses under the budget, ordered by price (ascending)
-    String query = "SELECT * FROM property WHERE purchase_price <= ? ORDER BY purchase_price DESC LIMIT 20";
-
-    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-         PreparedStatement stmt = conn.prepareStatement(query)) {
-
-        // Pass the upperBudget into the query
-        stmt.setString(1, upperBudget);  // 1 refers to the first "?" placeholder in the query
-
-        try (ResultSet rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                HomeSale sale = new HomeSale();
-                setFields(sale, rs);
-                salesList.add(sale);
-            }
-        }
-
-    } catch (SQLException e) {
-        e.printStackTrace();
+    for (Document doc : properties.find(Filters.lte("purchase_price", budget))
+                                  .sort(new Document("purchase_price", -1))
+                                  .limit(20)) {
+        results.add(convertDocToHomeSale(doc));
     }
 
-    return salesList;
+    return results;
 }
 
 //returns the average price of properties within a given postcode
-
 public Double getAveragePriceInPostcode(String postcode) {
 
-    Double averagePrice = null;
+    Document match = new Document("$match", new Document("post_code", postcode));
+    Document group = new Document("$group",
+        new Document("_id", null)
+        .append("average_price", new Document("$avg", "$purchase_price"))
+    );
 
-    // Query to calculate the average purchase price for properties in the given postcode
-    String query = "SELECT ROUND(AVG(purchase_price),2) AS average_price FROM property WHERE post_code = ?";
+    List<Document> pipeline = List.of(match, group);
+    Document result = properties.aggregate(pipeline).first();
 
-    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-         PreparedStatement stmt = conn.prepareStatement(query)) {
-
-        // Set the postcode parameter for the query
-        stmt.setString(1, postcode);  // 1 refers to the first "?" placeholder in the query
-
-        try (ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                averagePrice = rs.getDouble("average_price");
-            }
-        }
-
-    } catch (SQLException e) {
-        e.printStackTrace();
-    }
-
-    return averagePrice;  // Returns null if no result is found
+    return result != null ? result.getDouble("average_price") : null;
 }
 
 /**
@@ -197,39 +141,33 @@ public Double getAveragePriceInPostcode(String postcode) {
      * @param rs   the ResultSet from the executed query
      * @throws SQLException if an error occurs accessing result set data
      */
-    private static void setFields(HomeSale sale, ResultSet rs) throws SQLException {
-        sale.setPropertyId(rs.getString("property_id"));
-        sale.setPurchasePrice(rs.getString("purchase_price"));
-        sale.setPostCode(rs.getString("post_code"));
-        sale.setDownloadDate(rs.getString("download_date"));
-        sale.setCouncilName(rs.getString("council_name"));
-        sale.setAddress(rs.getString("address"));
-        sale.setNatureOfProperty(rs.getString("nature_of_property"));
-        sale.setStrataLotNumber(String.valueOf(rs.getInt("strata_lot_number")));
-        sale.setPropertyName(rs.getString("property_name"));
-        sale.setAreaType(rs.getString("area_type"));
-        sale.setContractDate(rs.getString("contract_date"));
-        sale.setSettlementDate(rs.getString("settlement_date"));
-        sale.setZoning(rs.getString("zoning"));
-        sale.setNatureOfProperty(rs.getString("nature_of_property")); // duplicated, but retained for consistency
-        sale.setPrimaryPurpose(rs.getString("primary_purpose"));
-        sale.setLegalDescription(rs.getString("legal_description"));
-        sale.setPropertyType(rs.getString("property_type"));
-        sale.setCount(rs.getInt("view_count"));
-
-        String postCode = rs.getString("post_code");
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-             PreparedStatement stmt = conn.prepareStatement("SELECT view_count_postcode FROM postcode WHERE post_code = ?")) {
+    private HomeSale convertDocToHomeSale(Document doc) {
+        HomeSale sale = new HomeSale();
+        sale.setPropertyId(doc.getString("property_id"));
+        sale.setPurchasePrice(String.valueOf(doc.get("purchase_price")));
+        sale.setPostCode(doc.getString("post_code"));
+        sale.setDownloadDate(doc.getString("download_date"));
+        sale.setCouncilName(doc.getString("council_name"));
+        sale.setAddress(doc.getString("address"));
+        sale.setNatureOfProperty(doc.getString("nature_of_property"));
+        sale.setStrataLotNumber(String.valueOf(doc.get("strata_lot_number")));
+        sale.setPropertyName(doc.getString("property_name"));
+        sale.setAreaType(doc.getString("area_type"));
+        sale.setContractDate(doc.getString("contract_date"));
+        sale.setSettlementDate(doc.getString("settlement_date"));
+        sale.setZoning(doc.getString("zoning"));
+        sale.setPrimaryPurpose(doc.getString("primary_purpose"));
+        sale.setLegalDescription(doc.getString("legal_description"));
+        sale.setPropertyType(doc.getString("property_type"));
+        sale.setCount(doc.getInteger("view_count", 0));
     
-            stmt.setString(1, postCode);
-    
-            try (ResultSet viewRs = stmt.executeQuery()) {
-                if (viewRs.next()) {
-                    sale.setPostCodeCount(viewRs.getInt("view_count_postcode"));
-                }
-            }
-        
+        // Fetch postcode view count from 'postcode' collection
+        Document postCodeDoc = postcodes.find(eq("post_code", doc.getString("post_code"))).first();
+        if (postCodeDoc != null) {
+            sale.setPostCodeCount(postCodeDoc.getInteger("view_count_postcode", 0));
         }
-
+    
+        return sale;
     }
+    
 }

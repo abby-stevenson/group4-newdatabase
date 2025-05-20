@@ -1,13 +1,17 @@
 services:
 
   db:
-      env_file:
-        - .env
-      image: mysql:9
-      container_name: mysql_db
-      hostname: db
-      volumes:
-        - ./database-files:/docker-entrypoint-initdb.d/:ro
-      ports:
-        - 3306:3306
+    env_file:
+      - .env
+    image: mongo:7
+    container_name: mongodb
+    hostname: db
+    volumes:
+      - ./database-files:/docker-entrypoint-initdb.d/:ro
+    ports:
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MONGO_INITDB_DATABASE: ${DB_NAME}
         

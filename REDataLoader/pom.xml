@@ -17,11 +17,24 @@
         </dependency>
 
 <!--  -->
-        <dependency>
-            <groupId>mysql</groupId>
-            <artifactId>mysql-connector-java</artifactId>
-            <version>8.0.30</version>
-        </dependency>
+    <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-sync</artifactId>
+        <version>4.11.0</version>
+    </dependency>
+
+    <dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>slf4j-api</artifactId>
+  <version>2.0.7</version>  <!-- or latest stable -->
+</dependency>
+
+<!-- Simple SLF4J logger binding -->
+<dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>slf4j-simple</artifactId>
+  <version>2.0.7</version>
+</dependency>
 
 
     </dependencies>
